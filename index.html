@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dosímetro TLD — Visor AR</title>
+
+  <!-- Model Viewer (Google) -->
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
+
+    :root {
+      --bg: #050a0f;
+      --surface: #0b1520;
+      --accent: #00e5ff;
+      --accent2: #ff6b35;
+      --glow: rgba(0,229,255,0.25);
+      --text: #c8e6f0;
+      --dim: #3a5a6a;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      animation: gridShift 20s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes gridShift {
+      0% { background-position: 0 0; }
+      100% { background-position: 40px 40px; }
+    }
+
+    /* Scanline overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* ── HEADER ── */
+    header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 20;
+      border-bottom: 1px solid rgba(0,229,255,0.1);
+      background: rgba(5,10,15,0.8);
+      backdrop-filter: blur(10px);
+    }
+
+    .logo {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      color: var(--accent);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .logo span { color: var(--dim); }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--dim);
+      box-shadow: none;
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+    .status-dot.active {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent), 0 0 20px var(--glow);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ── SCREEN: IDLE (antes de tocar) ── */
+    #idle-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      z-index: 15;
+      transition: opacity 0.6s, transform 0.6s;
+    }
+
+    #idle-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.95);
+    }
+
+    .idle-icon {
+      width: 80px; height: 80px;
+      border: 2px solid var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      animation: rotateBorder 4s linear infinite;
+    }
+
+    @keyframes rotateBorder {
+      0% { box-shadow: 0 0 0 0 var(--glow); }
+      50% { box-shadow: 0 0 20px 4px var(--glow); }
+      100% { box-shadow: 0 0 0 0 var(--glow); }
+    }
+
+    .idle-icon::before {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border: 1px dashed rgba(0,229,255,0.3);
+      border-radius: 50%;
+      animation: spin 8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .idle-icon svg { width: 36px; height: 36px; fill: var(--accent); }
+
+    .idle-title {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .idle-title em {
+      display: block;
+      font-style: normal;
+      color: var(--accent);
+      font-size: 14px;
+      letter-spacing: 6px;
+      margin-bottom: 4px;
+    }
+
+    .idle-sub {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      color: var(--dim);
+      letter-spacing: 1px;
+    }
+
+    .tap-hint {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .tap-ring {
+      width: 56px; height: 56px;
+      border: 2px solid var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .tap-ring::after {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border: 1px solid rgba(0,229,255,0.4);
+      border-radius: 50%;
+      animation: ripple 2s ease-out infinite;
+    }
+
+    @keyframes ripple {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(1.6); opacity: 0; }
+    }
+
+    .tap-ring svg { width: 22px; height: 22px; fill: var(--accent); }
+
+    .tap-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: var(--dim);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* ── MODEL VIEWER ── */
+    #viewer-wrapper {
+      position: fixed;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.6s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 56px;
+      padding-bottom: 140px;
+    }
+
+    #viewer-wrapper.visible {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    model-viewer {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      --poster-color: transparent;
+    }
+
+    /* ── STEP INFO ── */
+    #step-info {
+      position: fixed;
+      top: 65px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+
+    #step-info.visible { opacity: 1; }
+
+    .step-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .step-title {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--text);
+    }
+
+    /* ── PROGRESS DOTS ── */
+    #progress-bar {
+      position: fixed;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 20;
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+
+    #progress-bar.visible { opacity: 1; }
+
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      border: 1px solid var(--dim);
+      background: transparent;
+      transition: all 0.3s;
+    }
+
+    .dot.done { background: rgba(0,229,255,0.4); border-color: var(--accent); }
+
+    .dot.current {
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      transform: scale(1.4);
+    }
+
+    /* ── TAP BUTTON ── */
+    #tap-btn {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      opacity: 0;
+      transition: opacity 0.4s;
+      pointer-events: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #tap-btn.visible {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .btn-ring {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      border: 2px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,229,255,0.05);
+      position: relative;
+      transition: transform 0.15s, background 0.15s;
+    }
+
+    .btn-ring:active { transform: scale(0.93); background: rgba(0,229,255,0.15); }
+
+    .btn-ring::after {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border: 1px solid rgba(0,229,255,0.25);
+      border-radius: 50%;
+      animation: ripple 2.5s ease-out infinite;
+    }
+
+    .btn-ring svg { width: 26px; height: 26px; fill: var(--accent); }
+
+    .btn-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 10px;
+      color: var(--dim);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* ── AR BUTTON ── */
+    #ar-btn {
+      position: fixed;
+      bottom: 28px;
+      right: 20px;
+      z-index: 20;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+
+    #ar-btn.visible { opacity: 1; pointer-events: all; }
+
+    .ar-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,107,53,0.1);
+      border: 1px solid var(--accent2);
+      border-radius: 24px;
+      padding: 10px 16px;
+      color: var(--accent2);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s;
+    }
+
+    .ar-pill:active { background: rgba(255,107,53,0.2); }
+    .ar-pill svg { width: 18px; height: 18px; fill: var(--accent2); flex-shrink: 0; }
+
+    /* ── FLASH EFFECT ── */
+    #flash {
+      position: fixed;
+      inset: 0;
+      background: var(--accent);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 100;
+      transition: opacity 0.08s;
+    }
+
+    /* ── CORNER DECORATIONS ── */
+    .corner {
+      position: fixed;
+      width: 20px; height: 20px;
+      border-color: var(--accent);
+      border-style: solid;
+      opacity: 0.4;
+      z-index: 5;
+    }
+    .corner.tl { top: 56px; left: 0; border-width: 2px 0 0 2px; }
+    .corner.tr { top: 56px; right: 0; border-width: 2px 2px 0 0; }
+    .corner.bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+    .corner.br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+  </style>
+</head>
+<body>
+
+  <!-- Flash -->
+  <div id="flash"></div>
+
+  <!-- Corners -->
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="logo">TLD<span>_</span>DOSIMETER <span>// AR</span></div>
+    <div class="status-dot" id="status-dot"></div>
+  </header>
+
+  <!-- Idle screen -->
+  <div id="idle-screen">
+    <div class="idle-icon">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <div class="idle-title">
+      <em>Dosímetro</em>
+      TLD
+    </div>
+    <div class="idle-sub">Termoluminiscencia · Modelo Interactivo</div>
+    <div class="tap-hint" id="start-tap">
+      <div class="tap-ring">
+        <svg viewBox="0 0 24 24"><path d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 14.21 3 12 3S8 5.01 8 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63l-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.2 0-.62-.38-1.16-.91-1.38z"/></svg>
+      </div>
+      <div class="tap-label">Toca para comenzar</div>
+    </div>
+  </div>
+
+  <!-- Step info -->
+  <div id="step-info">
+    <div class="step-label" id="step-label">PASO 1 / 5</div>
+    <div class="step-title" id="step-title">Dosímetro TLD</div>
+  </div>
+
+  <!-- Model Viewer -->
+  <div id="viewer-wrapper">
+    <model-viewer
+      id="mv"
+      src=""
+      alt="Dosímetro TLD"
+      shadow-intensity="1"
+      camera-controls
+      auto-rotate
+      ar
+      ar-modes="webxr scene-viewer quick-look"
+      ar-scale="auto"
+      exposure="1"
+      environment-image="neutral"
+      interaction-prompt="none"
+    ></model-viewer>
+  </div>
+
+  <!-- Progress dots -->
+  <div id="progress-bar">
+    <div class="dot" id="d0"></div>
+    <div class="dot" id="d1"></div>
+    <div class="dot" id="d2"></div>
+    <div class="dot" id="d3"></div>
+    <div class="dot" id="d4"></div>
+  </div>
+
+  <!-- Tap button -->
+  <div id="tap-btn">
+    <div class="btn-ring" id="main-btn">
+      <svg viewBox="0 0 24 24"><path d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 14.21 3 12 3S8 5.01 8 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63l-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.20 0-.62-.38-1.16-.91-1.38z"/></svg>
+    </div>
+    <div class="btn-label" id="btn-label">siguiente</div>
+  </div>
+
+  <!-- AR button -->
+  <div id="ar-btn">
+    <div class="ar-pill" id="ar-pill">
+      <svg viewBox="0 0 24 24"><path d="M9 2L1 6v12l8 4 8-4V6L9 2zm0 2.18L15 7.5v9L9 19.82 3 16.5v-9L9 4.18zM9 7v10l6-3V10L9 7z"/></svg>
+      Ver en AR
+    </div>
+  </div>
+
+  <script>
+    // ── CONFIG ──────────────────────────────────────────────
+    const STEPS = [
+      {
+        file: 'TLD1.glb',
+        label: 'PASO 1 / 5',
+        title: 'Dosímetro TLD — Vista General',
+        autoRotate: true,
+      },
+      {
+        file: 'TLD2.glb',
+        label: 'PASO 2 / 5',
+        title: 'Apertura del Dosímetro',
+        autoRotate: false,
+      },
+      {
+        file: 'TLD3.glb',
+        label: 'PASO 3 / 5',
+        title: 'Zoom al Cristal TLD',
+        autoRotate: false,
+      },
+      {
+        file: 'TLD4.glb',
+        label: 'PASO 4 / 5',
+        title: 'Electrones en el Cristal',
+        autoRotate: false,
+      },
+      {
+        file: 'TLD5.glb',
+        label: 'PASO 5 / 5',
+        title: 'Termoluminiscencia — Lectura',
+        autoRotate: false,
+      },
+    ];
+
+    // ── STATE ─────────────────────────────────────────────
+    // state: -1 = idle, 0-4 = step showing, 5 = hidden (post-cycle)
+    let state = -1;
+    let isAnimating = false;
+
+    // ── ELEMENTS ─────────────────────────────────────────
+    const idleScreen   = document.getElementById('idle-screen');
+    const viewerWrap   = document.getElementById('viewer-wrapper');
+    const stepInfo     = document.getElementById('step-info');
+    const progressBar  = document.getElementById('progress-bar');
+    const tapBtn       = document.getElementById('tap-btn');
+    const arBtn        = document.getElementById('ar-btn');
+    const mv           = document.getElementById('mv');
+    const statusDot    = document.getElementById('status-dot');
+    const stepLabel    = document.getElementById('step-label');
+    const stepTitle    = document.getElementById('step-title');
+    const btnLabel     = document.getElementById('btn-label');
+    const dots         = [0,1,2,3,4].map(i => document.getElementById('d'+i));
+    const flash        = document.getElementById('flash');
+    const startTap     = document.getElementById('start-tap');
+    const arPill       = document.getElementById('ar-pill');
+
+    // ── FLASH FX ─────────────────────────────────────────
+    function doFlash() {
+      flash.style.opacity = '0.15';
+      setTimeout(() => flash.style.opacity = '0', 80);
+    }
+
+    // ── UPDATE DOTS ──────────────────────────────────────
+    function updateDots(current) {
+      dots.forEach((d, i) => {
+        d.className = 'dot';
+        if (i < current) d.classList.add('done');
+        else if (i === current) d.classList.add('current');
+      });
+    }
+
+    // ── LOAD STEP ─────────────────────────────────────────
+    function loadStep(index) {
+      const s = STEPS[index];
+      mv.src = s.file;
+      mv.autoRotate = s.autoRotate;
+      stepLabel.textContent = s.label;
+      stepTitle.textContent = s.title;
+      updateDots(index);
+      // button label
+      if (index === 4) {
+        btnLabel.textContent = 'finalizar';
+      } else {
+        btnLabel.textContent = 'siguiente';
+      }
+    }
+
+    // ── SHOW MODEL ────────────────────────────────────────
+    function showModel(index) {
+      loadStep(index);
+      viewerWrap.classList.add('visible');
+      stepInfo.classList.add('visible');
+      progressBar.classList.add('visible');
+      tapBtn.classList.add('visible');
+      arBtn.classList.add('visible');
+      statusDot.classList.add('active');
+      // play animation once loaded
+      mv.addEventListener('load', () => {
+        mv.play({ repetitions: 1 });
+      }, { once: true });
+    }
+
+    // ── HIDE MODEL ────────────────────────────────────────
+    function hideModel() {
+      viewerWrap.classList.remove('visible');
+      stepInfo.classList.remove('visible');
+      progressBar.classList.remove('visible');
+      tapBtn.classList.remove('visible');
+      arBtn.classList.remove('visible');
+      statusDot.classList.remove('active');
+      setTimeout(() => { mv.src = ''; }, 500);
+    }
+
+    // ── MAIN TAP HANDLER ─────────────────────────────────
+    function handleTap() {
+      if (isAnimating) return;
+      isAnimating = true;
+      doFlash();
+
+      if (state === -1) {
+        // IDLE → Step 0
+        idleScreen.classList.add('hidden');
+        state = 0;
+        setTimeout(() => {
+          showModel(0);
+          isAnimating = false;
+        }, 300);
+
+      } else if (state >= 0 && state < 4) {
+        // Step N → Step N+1
+        state++;
+        loadStep(state);
+        mv.play({ repetitions: 1 });
+        isAnimating = false;
+
+      } else if (state === 4) {
+        // Step 4 → HIDE
+        hideModel();
+        state = 5;
+        isAnimating = false;
+
+      } else if (state === 5) {
+        // HIDE → Step 0 (restart cycle)
+        state = 0;
+        showModel(0);
+        isAnimating = false;
+      }
+    }
+
+    // ── EVENTS ───────────────────────────────────────────
+    startTap.addEventListener('click', handleTap);
+    document.getElementById('main-btn').addEventListener('click', handleTap);
+
+    // Also allow tapping the model itself
+    mv.addEventListener('click', () => {
+      if (state >= 0 && state <= 4) handleTap();
+    });
+
+    // AR button → triggers native AR via model-viewer
+    arPill.addEventListener('click', () => {
+      mv.activateAR();
+    });
+
+    // ── INIT ─────────────────────────────────────────────
+    updateDots(-1);
+  </script>
+</body>
+</html>
